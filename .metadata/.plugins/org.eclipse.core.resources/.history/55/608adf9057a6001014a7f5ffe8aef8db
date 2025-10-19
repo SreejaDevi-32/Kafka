@@ -1,0 +1,64 @@
+package com.kafka.springboot;
+
+import java.net.URI;
+import java.util.concurrent.TimeUnit;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Service;
+
+import com.launchdarkly.eventsource.EventSource;
+import com.launchdarkly.eventsource.background.BackgroundEventHandler;
+import com.launchdarkly.eventsource.background.BackgroundEventSource;
+
+import okhttp3.Request;
+
+@Service
+public class WikimediaChangesProducer {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(WikimediaChangesProducer.class);
+
+    private final KafkaTemplate<String, String> kafkaTemplate;
+
+    public WikimediaChangesProducer(KafkaTemplate<String, String> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    public void sendMessage() throws InterruptedException {
+        String topic = "wikimedia_recentchange";
+        String url = "https://stream.wikimedia.org/v2/stream/recentchange";
+
+        BackgroundEventHandler eventHandler = new WikimediaChangesHandler(kafkaTemplate, topic);
+
+        EventSource.Builder eventSourceBuilder = new EventSource.Builder(
+                eventHandler,
+                URI.create(url)
+        );
+
+        // Add User-Agent via OkHttp interceptor
+        OkHttpClient client = new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    Request original = chain.request();
+                    Request requestWithUserAgent = original.newBuilder()
+                            .header("User-Agent", "MyKafkaApp/1.0 (myemail@example.com)")
+                            .build();
+                    return chain.proceed(requestWithUserAgent);
+                })
+                .build();
+
+        eventSourceBuilder.client(client);
+
+        BackgroundEventSource eventSource = new BackgroundEventSource.Builder(eventHandler, eventSourceBuilder)
+                .build();
+
+        eventSource.start();
+        LOGGER.info("Started Wikimedia stream...");
+
+        // Keep the app alive to receive events
+        TimeUnit.MINUTES.sleep(10);
+    }
+
+
+
+}

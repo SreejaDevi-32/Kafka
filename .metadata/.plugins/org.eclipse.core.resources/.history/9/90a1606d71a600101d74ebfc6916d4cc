@@ -1,0 +1,5 @@
+package com.kafka.springboot.repository;
+
+public interface WikimediaDataRepository {
+
+}
